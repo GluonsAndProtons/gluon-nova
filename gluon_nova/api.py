@@ -320,11 +320,14 @@ class API(base_api.NetworkAPI,
         # We could instead list the port IDs of the VIFs and unbound the ones we know about.
         #search_opts = {'device_id': instance.uuid}
         client = self.client
-        data = client.list_ports(owner=SERVICE_NAME, device=instance.uuid)
-        ports = data.keys()
-
-        # Reset device_id and device_owner for ports
-        self._unbind_ports(context, ports)
+        #data = client.list_ports(owner=SERVICE_NAME, device=instance.uuid)
+        ports = client.list_ports()
+        port_ids = []
+        for port in ports:
+            # Reset device_id and device_owner for ports
+            if port.get("device_id",'') == instance.uuid:
+                port_ids.append(port.get("id"))
+        self._unbind_ports(context, port_ids)
 
         # NOTE(arosen): This clears out the network_cache only if the instance
         # hasn't already been deleted. This is needed when an instance fails to
@@ -499,14 +502,16 @@ class API(base_api.NetworkAPI,
 
         for port in gluon_port_list:
             LOG.info('updating gluon port list: %s' % port)
-            LOG.info('host: %s' % port['host'])
             # For the moment, absent more drastic changes to Nova's networking model,
             # we must have a network in this model.  Each port gets its own network.
+            bridge = port.get('binding:details', {}).get('bridge')
+            if bridge is None:
+                bridge = 'br-int'
             network = network_model.Network(
-                id=port.get('network_id',''),
-                bridge=port.get('binding:details', {}).get('bridge'),
+                id=port.get('network_id', ''),
+                bridge=bridge,
                 injected=CONF.flat_injected,
-                label=port.get('label',''),
+                label=port.get('name',''),  # ?? TWH
                 tenant_id=port.get('tenant_id','')
             )
 
@@ -516,14 +521,13 @@ class API(base_api.NetworkAPI,
                 network=network,
                 vnic_type=port.get('binding:vnic_type',
                                    network_model.VNIC_TYPE_NORMAL),
-                type=port.get('binding:vif_type'),
+                type=port.get('binding:vif_type', 'ovs'),
                 profile=port.get('binding:profile'),
                 details=port.get('binding:vif_details'),
                 ovs_interfaceid=port.get('binding:details', {}).get('ovs_interfaceid'),
                 devname=port.get('devname', ''),
-                active=port['vif_active'],
+                active=port['status'],  # ?? TWH
                 preserve_on_delete=True)) # Gluon ports: never deleted by Nova
-
         return nw_info
 
     def setup_instance_network_on_host(self, context, instance, host):
