@@ -48,11 +48,11 @@ from gluonclient import api as gluonclient
 
 opts = [
     cfg.StrOpt('url',
-               default='http://127.0.0.1:9696',
+               default='http://127.0.0.1:2704',
                help='URL for connecting to gluon'),
     cfg.StrOpt('region_name',
                help='Region name for connecting to gluon in admin context'),
-   ]
+]
 
 OPT_GROUP = 'gluon'
 
@@ -107,7 +107,7 @@ class NoFloatingIPSupportMixin(object):
     def release_floating_ip(self, context, address,
                             affect_auto_assigned=False): self._err()
     def disassociate_and_release_floating_ip(self, context, instance,
-                                           floating_ip): self._err()
+                                             floating_ip): self._err()
     def associate_floating_ip(self, context, instance,
                               floating_address, fixed_address,
                               affect_auto_assigned=False): self._err()
@@ -131,7 +131,7 @@ class NoDNSSupportMixin(object):
 
 class NoHostSetupRequiredMixin(object):
     def setup_networks_on_host(self, context, instance, host=None,
-                                                        teardown=False):
+                               teardown=False):
         pass
 
 
@@ -143,15 +143,15 @@ SERVICE_NAME='nova'
 # get_vifs_by_instance (?)
 # get_vifs_by_mac_address
 class API(base_api.NetworkAPI,
-	  NoNetworkSupportMixin, NoFixedIPSupportMixin, NoFloatingIPSupportMixin,
-	  NoDNSSupportMixin, NoHostSetupRequiredMixin):
+          NoNetworkSupportMixin, NoFixedIPSupportMixin, NoFloatingIPSupportMixin,
+          NoDNSSupportMixin, NoHostSetupRequiredMixin):
     """API for interacting with the gluon 2.x API."""
 
     def __init__(self, skip_policy_check=False):
         super(API, self).__init__(skip_policy_check=skip_policy_check)
-	self.client = gluonclient.ComputeServiceAPI('http://0:2704/', 
-		      SERVICE_NAME) # This last is our ownership name
-	# .. and it being 'nova' means we can have one nova per gluon
+        self.client = gluonclient.ComputeServiceAPI(CONF.gluon.url,
+                                                    SERVICE_NAME) # This last is our ownership name
+    # .. and it being 'nova' means we can have one nova per gluon
 
     def _unbind_ports(self, context, ports):
         """Unbind the given ports.
@@ -162,7 +162,7 @@ class API(base_api.NetworkAPI,
 
         for port_id in ports:
             try:
-		self.client.unbind(port_id)
+                self.client.unbind(port_id)
             except Exception:
                 LOG.exception(_LE("Unable to clear device ID "
                                   "for port '%s'"), port_id)
@@ -201,26 +201,26 @@ class API(base_api.NetworkAPI,
 
         LOG.debug('allocate_for_instance()', instance=instance)
 
-	# Not that this should ever happen, but we can't check permissions if
-	# there is no owning project id on the instance.
+        # Not that this should ever happen, but we can't check permissions if
+        # there is no owning project id on the instance.
         if not instance.project_id:
             msg = _('empty project id for instance %s')
             raise exception.InvalidInput(
                 reason=msg % instance.uuid)
 
-	# requested NICs, actually (networks for historical reasons)
+        # requested NICs, actually (networks for historical reasons)
         requested_networks = kwargs.get('requested_networks')
 
-	# We are passed DHCP options, but we don't use them because our ports exist
-	# already.  This is only for fresh ports.
+        # We are passed DHCP options, but we don't use them because our ports exist
+        # already.  This is only for fresh ports.
         # dhcp_opts = kwargs.get('dhcp_options', None)
 
         # if this function is directly called without a requested_network param
         # or if it is indirectly called through allocate_port_for_instance()
         # with None params=(network_id=None, requested_ip=None, port_id=None,
         # pci_request_id=None):
-        if (not requested_networks
-            or requested_networks.is_single_unspecified):
+
+        if (not requested_networks or len(requested_networks) == 0):
             # This used to mean 'attach to all networks', but Gluon
             # knows not of networks
             raise NotImplementedError("NICs must be explicitly bound to ports: %s" % requested_networks)
@@ -228,25 +228,25 @@ class API(base_api.NetworkAPI,
         for request in requested_networks:
             if request.port_id:
 
-		# Check gluon has heard of this, and something else (another VM under Nova, or another
-		# service than Nova) has not already started using it
+                # Check gluon has heard of this, and something else (another VM under Nova, or another
+                # service than Nova) has not already started using it
                 try:
                     unbound = client.is_unbound(request.port_id)
-		    LOG.debug('This port %s is bound? %s' % (request.port_id, 'no' if unbound else 'yes'))
-		    if not unbound:
-			raise exception.PortInUse(port_id=request.port_id)
+                    LOG.debug('This port %s is bound? %s' % (request.port_id, 'no' if unbound else 'yes'))
+                    if not unbound:
+                        raise exception.PortInUse(port_id=request.port_id)
 
                 except gluon_client_exc.PortNotFoundClient:
                     raise exception.PortNotFound(port_id=request.port_id)
-		# TODO ownership / rights check
+                # TODO ownership / rights check
                 #if port['tenant_id'] != instance.project_id:
                 #    raise exception.PortNotUsable(port_id=request.port_id,
                 #                                  instance=instance.uuid)
 
                 if hypervisor_macs is not None:
                     if port.get('mac_address') is None or port['mac_address'] not in hypervisor_macs:
-			# Can't use for this if the port is not given a MAC up front or
-			# the port's MAC isn't suitable
+                        # Can't use for this if the port is not given a MAC up front or
+                        # the port's MAC isn't suitable
                         raise exception.PortNotUsable(
                             port_id=request.port_id,
                             instance=instance.uuid)
@@ -258,26 +258,26 @@ class API(base_api.NetworkAPI,
             if request.network_id:
                 # Just in case the previous didn't pick that up:
                 raise NotImplementedError("Gluon doesn't understand networks")
-	    if request.address:
-		raise NotImplementedError("Gluon doesn't allow address setting")
+            if request.address:
+                raise NotImplementedError("Gluon doesn't allow address setting")
 
-	# Note: security groups are provided to the Nova VM, but not used because we never create
-	# fresh ports, only use existing ones (that should already have security set).
+        # Note: security groups are provided to the Nova VM, but not used because we never create
+        # fresh ports, only use existing ones (that should already have security set).
 
-	# Attempt to perform the port binding for all ports being attached to this VM
-	zone = 'compute:%s' % instance.availability_zone
-	bound_ports=[]
-	try:
-	    for request in requested_networks:
-		self._bind_port(request.port_id, zone, instance, request.pci_request_id)
-		bound_ports.append(request.port_id)
-	except Exception:
-	    with excutils.save_and_reraise_exception():
-		self._unbind_ports(context, bound_ports)
+        # Attempt to perform the port binding for all ports being attached to this VM
+        zone = 'compute:%s' % instance.availability_zone
+        bound_ports=[]
+        try:
+            for request in requested_networks:
+                self._bind_port(request.port_id, zone, instance, request.pci_request_id)
+                bound_ports.append(request.port_id)
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                self._unbind_ports(context, bound_ports)
 
-        LOG.error('attempting to update cached data following a bind: %d ports' % len(bound_ports))
+        LOG.info('attempting to update cached data following a bind: %d ports' % len(bound_ports))
         nw_info = self.get_instance_nw_info(
-            context, instance, 
+            context, instance,
             port_ids=bound_ports)
         # NOTE(danms): Only return info about ports we created in this run.
         # In the initial allocation case, this will be everything we created,
@@ -291,37 +291,37 @@ class API(base_api.NetworkAPI,
 
         Populate it with SR-IOV related information
         """
-	LOG.error('binding port %s' % port_id)
-	pci_profile = None
+        LOG.info('binding port %s' % port_id)
+        pci_profile = None
         if pci_request_id:
             pci_dev = pci_manager.get_instance_pci_devs(
                 instance, pci_request_id).pop()
             devspec = pci_whitelist.get_pci_device_devspec(pci_dev)
             pci_profile = {'pci_vendor_info': "%s:%s" % (pci_dev.vendor_id,
-                                                     pci_dev.product_id),
-                       'pci_slot': pci_dev.address,
-                       'physical_network':
-                           devspec.get_tags().get('physical_network')
-                      }
+                                                         pci_dev.product_id),
+                           'pci_slot': pci_dev.address,
+                           'physical_network':
+                               devspec.get_tags().get('physical_network')
+                           }
 
-	# These are used by Neutron extensions and could be used by other
-	# things...
+        # These are used by Neutron extensions and could be used by other
+        # things...
         flavor = instance.get_flavor()
         rxtx_factor = flavor.get('rxtx_factor')
 
         host = instance.get('host')
 
-	self.client.bind(port_id, zone, instance.uuid, host, pci_profile=pci_profile, rxtx_factor=rxtx_factor)
+        self.client.bind(port_id, zone, instance.uuid, host, pci_profile=pci_profile, rxtx_factor=rxtx_factor)
 
     def deallocate_for_instance(self, context, instance, **kwargs):
         """Deallocate all network resources related to the instance."""
         LOG.debug('deallocate_for_instance()', instance=instance)
         # This used to get a list of ports matching this device from Neutron and free them all.
-	# We could instead list the port IDs of the VIFs and unbound the ones we know about.
+        # We could instead list the port IDs of the VIFs and unbound the ones we know about.
         #search_opts = {'device_id': instance.uuid}
         client = self.client
         data = client.list_ports(owner=SERVICE_NAME, device=instance.uuid)
-	ports = data.keys()
+        ports = data.keys()
 
         # Reset device_id and device_owner for ports
         self._unbind_ports(context, ports)
@@ -331,7 +331,7 @@ class API(base_api.NetworkAPI,
         # launch and is rescheduled onto another compute node. If the instance
         # has already been deleted this call does nothing.
         base_api.update_instance_cache_with_nw_info(self, context, instance,
-                                            network_model.NetworkInfo([]))
+                                                    network_model.NetworkInfo([]))
 
     def allocate_port_for_instance(self, context, instance, port_id,
                                    network_id=None, requested_ip=None):
@@ -342,7 +342,7 @@ class API(base_api.NetworkAPI,
                                             port_id=port_id,
                                             pci_request_id=None)])
         return self.allocate_for_instance(context, instance,
-                requested_networks=requested_networks)
+                                          requested_networks=requested_networks)
 
     def deallocate_port_for_instance(self, context, instance, port_id):
         """Remove a specified port from the instance.
@@ -354,27 +354,27 @@ class API(base_api.NetworkAPI,
 
     def list_ports(self, context, **search_opts):
         """List ports for the client based on search options."""
-	raise NotImplementedException()
+        raise NotImplementedException()
 
     def show_port(self, context, port_id):
         """Return the port for the client given the port id."""
-	raise NotImplementedException()
+        raise NotImplementedException()
 
-    def _get_instance_nw_info(self, context, instance, 
+    def _get_instance_nw_info(self, context, instance,
                               port_ids=None):
         # NOTE(danms): This is an inner method intended to be called
         # by other code that updates instance nwinfo. It *must* be
         # called with the refresh_cache-%(instance_uuid) lock held!
 
-        nw_info = self._build_network_info_model(context, instance, 
+        nw_info = self._build_network_info_model(context, instance,
                                                  port_ids)
         return network_model.NetworkInfo.hydrate(nw_info)
 
-    def _gather_port_ids(self, context, instance, 
-                                      port_ids=None):
+    def _gather_port_ids(self, context, instance,
+                         port_ids=None):
         """Return an instance's complete list of port_ids."""
 
-	ifaces = compute_utils.get_nw_info_for_instance(instance)
+        ifaces = compute_utils.get_nw_info_for_instance(instance)
         # This code path is only done when refreshing the network_cache
         if port_ids is None:
             port_ids = [iface['id'] for iface in ifaces]
@@ -393,10 +393,10 @@ class API(base_api.NetworkAPI,
         """
         phynet_name = None
         vnic_type = None
-	client = self.client
+        client = self.client
 
-	vnic_type, vnic_connection_ident = \
-	    client.get_vnic_details(port_id)
+        vnic_type, vnic_connection_ident = \
+            client.get_vnic_details(port_id)
         return vnic_type, vnic_connection_ident
 
     def create_pci_requests_for_sriov_ports(self, context, pci_requests,
@@ -409,7 +409,7 @@ class API(base_api.NetworkAPI,
         if not requested_networks:
             return
 
-        
+
         for request_net in requested_networks:
             phynet_name = None
             vnic_type = network_model.VNIC_TYPE_NORMAL
@@ -419,8 +419,8 @@ class API(base_api.NetworkAPI,
                     request_net.port_id)
             pci_request_id = None
             if vnic_type != network_model.VNIC_TYPE_NORMAL:
-		# all types other than 'normal' are PCI types?! TODO
-		phynet_name = connection_iden['physical_network']
+                # all types other than 'normal' are PCI types?! TODO
+                phynet_name = connection_iden['physical_network']
                 request = objects.InstancePCIRequest(
                     count=1,
                     spec=[{pci_request.PCI_NET_TAG: phynet_name}],
@@ -479,50 +479,50 @@ class API(base_api.NetworkAPI,
                           cached value.
         """
 
-	client = self.client
+        client = self.client
         current_gluon_ports = client.ports_by_device(instance.uuid)
 
         if port_ids is not None:
-	    LOG.error('updating gluon port list: %d ports supplied' % len(port_ids))
+            LOG.info('updating gluon port list: %d ports supplied' % len(port_ids))
         nw_info_refresh = port_ids is None
 
         port_ids = self._gather_port_ids(
-                context, instance, port_ids)
+            context, instance, port_ids)
         nw_info = network_model.NetworkInfo()
 
         # Make a list of port dicts - these are what Gluon returns, an idealised form of what the backend offers up.
-	# TODO a bulk op would help here.
-	# NB - as a weirdness the port can be deleted from the backend without the compute service knowing.  It
-	# will be removed from this datastructure if that has previously happened.
-        LOG.error('updating gluon port list: %d ports found' % len(port_ids))
-        gluon_port_list = [client.port(port_id) for port_id in port_ids if port_id] 
+        # TODO a bulk op would help here.
+        # NB - as a weirdness the port can be deleted from the backend without the compute service knowing.  It
+        # will be removed from this datastructure if that has previously happened.
+        LOG.info('updating gluon port list: %d ports found' % len(port_ids))
+        gluon_port_list = [client.port(port_id) for port_id in port_ids if port_id]
 
         for port in gluon_port_list:
-            LOG.error('updating gluon port list: %s' % port)
-            LOG.error('host: %s' % port['host'])
-	    # For the moment, absent more drastic changes to Nova's networking model,
-	    # we must have a network in this model.  Each port gets its own network.
-	    network = network_model.Network(
-		id=port.get('network_id'),
-		bridge=port.get('binding:details', {}).get('bridge'),
-		injected=CONF.flat_injected,
-		label=port.get('label'),
-		tenant_id=port.get('tenant_id')
-	    )
+            LOG.info('updating gluon port list: %s' % port)
+            LOG.info('host: %s' % port['host'])
+            # For the moment, absent more drastic changes to Nova's networking model,
+            # we must have a network in this model.  Each port gets its own network.
+            network = network_model.Network(
+                id=port.get('network_id',''),
+                bridge=port.get('binding:details', {}).get('bridge'),
+                injected=CONF.flat_injected,
+                label=port.get('label',''),
+                tenant_id=port.get('tenant_id','')
+            )
 
-	    nw_info.append(network_model.VIF(
-		id=port['id'],
-		address=port.get('mac_address'),
-		network=network,
-		vnic_type=port.get('binding:vnic_type',
-		    network_model.VNIC_TYPE_NORMAL),
-		type=port.get('binding:vif_type'),
-		profile=port.get('binding:profile'),
-		details=port.get('binding:vif_details'),
-		ovs_interfaceid=port.get('binding:details', {}).get('ovs_interfaceid'),
-		devname=port.get('devname', ''),
-		active=port['vif_active'],
-		preserve_on_delete=True)) # Gluon ports: never deleted by Nova
+            nw_info.append(network_model.VIF(
+                id=port['id'],
+                address=port.get('mac_address'),
+                network=network,
+                vnic_type=port.get('binding:vnic_type',
+                                   network_model.VNIC_TYPE_NORMAL),
+                type=port.get('binding:vif_type'),
+                profile=port.get('binding:profile'),
+                details=port.get('binding:vif_details'),
+                ovs_interfaceid=port.get('binding:details', {}).get('ovs_interfaceid'),
+                devname=port.get('devname', ''),
+                active=port['vif_active'],
+                preserve_on_delete=True)) # Gluon ports: never deleted by Nova
 
         return nw_info
 
@@ -547,9 +547,9 @@ class API(base_api.NetworkAPI,
             if p.get('host') != host:
                 try:
                     client.update_port(p['id'],
-                                        {'port': {'host': host}})
+                                       {'port': {'host': host}})
                 except Exception:
                     with excutils.save_and_reraise_exception():
                         LOG.exception(_LE("Unable to update host of port %s"),
                                       p['id'])
-                    # ... and admit defeat, when the DB is in a state.  Typical.
+                        # ... and admit defeat, when the DB is in a state.  Typical.

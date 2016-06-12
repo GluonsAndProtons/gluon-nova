@@ -1,4 +1,5 @@
 .eggs
+.idea/
 build
 *.egg-info
 *.pyc
