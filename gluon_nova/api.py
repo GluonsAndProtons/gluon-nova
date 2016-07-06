@@ -540,7 +540,7 @@ class API(base_api.NetworkAPI,
                 profile=port.get('binding:profile'),
                 details=port.get('binding:vif_details'),
                 ovs_interfaceid=port.get('binding:details', {}).get('ovs_interfaceid'),
-                devname=port.get('devname', ''),
+                devname=port.get('devname', 'tap%s' % port['id'][:11]),
                 active=port['status'],  # ?? TWH
                 preserve_on_delete=True)) # Gluon ports: never deleted by Nova
         return nw_info
